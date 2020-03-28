@@ -1,0 +1,99 @@
+---
+title: "Homework 4"
+author: "[Your team name here]"
+date: "Due 19 April 2020"
+---
+
+
+<!-- Header material
+Use this section to load the data and do any processing which is 
+needed in order to begin your analysis task.
+-->
+
+
+```{r setup, include=FALSE}
+# General set-up for the report.
+# I find this useful, but you may improve upon, ignore, or remove
+#  (possibly at your own peril).
+# Tasks accomplished:
+# Don't print out code
+# Save results so that code blocks aren't re-run unless code
+# changes (cache), _or_ a relevant earlier code block changed (autodep),
+# don't clutter R output with messages or warnings (message, warning)
+library(MASS)
+library(knitr)
+opts_chunk$set(echo=FALSE,
+               cache=TRUE, autodep=TRUE,
+               message=FALSE, warning=FALSE)
+# Turn off meaningless clutter in summary() output
+options(show.signif.stars=FALSE)
+library(tidyverse)
+library(mgcv)
+```
+
+## Comparing methods
+
+```{r load-sex}
+sexstudy = read_csv('sexstudy.csv')
+sexstudy = sexstudy %>% 
+  select(happiness.scale.mean, treatment, female, 
+         incomegt40k,degree,age,yearsmar) # get rid of the other columns for convenience.
+cv.glm = function(glmObj) mean((residuals(glmObj)/(1-hatvalues(glmObj)))^2) # same as for lm
+cv.gam = function(gamObj) mean((residuals(gamObj)/(1-gamObj$hat))^2) 
+```
+
+## Writing functions
+
+```{r wrong-functions, echo=TRUE}
+logit <- function(z){ # can this take in any z?
+  log(z/(1-z))
+}
+ilogit <- function(z){ # what about this one?
+  exp(z)/(1+exp(z))
+}
+sim.logistic <- function(x, beta.0, beta, bind=FALSE) {
+  linear.parts <- beta.0 + (x%*%beta)
+  y <- rbinom(nrow(x), size=1, prob=ilogit(linear.parts))
+  if (bind) { return(cbind(x,y)) } else { return(y) }
+}
+```
+
+```{r logit-selection-borrowed}
+binary_calibration_plot <- function(y, model, breaks = 0:10/10, 
+                                    point.color='blue', line.color='red') {
+  fitted.probs = predict(model, type="response")
+  ind = cut(fitted.probs, breaks)
+  freq = tapply(y, ind, mean)
+  ave.prob = tapply(fitted.probs, ind, mean)
+  se = sqrt(ave.prob*(1-ave.prob)/table(ind))
+  df = data.frame(freq, ave.prob, se)
+  g <- ggplot(df, aes(ave.prob,freq)) + geom_point(color=point.color) + 
+    geom_abline(slope = 1, intercept = 0,color=line.color) +
+    ylab("observed frequency") + xlab("average predicted probability") +
+    geom_errorbar(ymin=ave.prob-1.96*se, ymax=ave.prob+1.96*se) +
+    ylim(0,1)+xlim(0,1) + 
+    geom_rug(aes(x=fitted.probs,y=fitted.probs),data.frame(fitted.probs),sides='b')
+  return(g)  
+}
+
+simulate.from.logr <- function(df, mdl) { # altered to work with any glm output
+  probs <- predict(mdl, type="response") # don't want newdata argument due to factors
+  newy <- rbinom(n=nrow(df), size=1,prob=probs)
+  df[[names(mdl$model)[1]]] <- newy # the names part, gets the response from the df
+  return(df)
+}
+
+# Simulate from an estimated logistic model, and refit both the logistic
+  # regression and a generalized additive model
+# Better code than in the textbook
+# Inputs: data frame with covariates (df), fitted logistic model (logr), fitted gam (gamr)
+# Output: difference in deviances
+delta.deviance.sim <- function (df, logr, gamr) {
+  sim.df <- simulate.from.logr(df, logr)
+  GLM.dev <- glm(logr$formula,data=sim.df,family="binomial")$deviance # used formulas instead
+  GAM.dev <- gam(gamr$formula,data=sim.df,family="binomial")$deviance
+  return(GLM.dev - GAM.dev)
+}
+```
+
+
